@@ -163,21 +163,21 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\
     );
     
-    var offset: usize = 0;
+    var offset: usize = undefined;
     for (c_lib_modules.items) |mod, j| {
-        try w.print(
-            "    c_libs[{}] = imports._{s}_leveldb_lib.configure(\n",
-            .{ j, mod.id[0..12] },
-        );
-        try w.print(
-            "        dirs._{s}, b.allocator,\n",
-            .{ mod.id[0..12] },
-        );
         offset =
             if (j == 0 or !std.mem.eql(u8, mod.id, c_lib_modules.items[j - 1].id))
                 0
             else
                 offset + 1;
+        try w.print(
+            "    c_libs[{}] = imports._{s}_{}_lib.configure(\n",
+            .{ j, mod.id[0..12], offset },
+        );
+        try w.print(
+            "        dirs._{s}, b.allocator,\n",
+            .{ mod.id[0..12] },
+        );
         try w.print(
             "        b.addStaticLibrary(\"{s}\", null),\n",
             .{ mod.c_libs[offset] },
@@ -465,9 +465,9 @@ fn print_imports(w: std.fs.File.Writer, m: zigmod.Module, path: string) !void {
             "    pub const {s} = @import(\"{}/{}/{s}\");\n",
             .{ ident, path_escaped, clean_path_escaped, d.main }
         );
-        for (d.c_libs) |c_lib| try w.print(
-            "    const _{s}_{s}_lib = @import(\"{}/{}/{s}_lib.zig\");\n",
-            .{ d.id[0..12], c_lib, path_escaped, clean_path_escaped, c_lib },
+        for (d.c_libs) |c_lib, j| try w.print(
+            "    const _{s}_{}_lib = @import(\"{}/{}/{s}_lib.zig\");\n",
+            .{ d.id[0..12], j, path_escaped, clean_path_escaped, c_lib },
         );
     }
 }
