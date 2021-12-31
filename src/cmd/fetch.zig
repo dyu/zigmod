@@ -41,6 +41,31 @@ pub fn execute(args: [][]u8) !void {
 }
 
 pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Module, list: *std.ArrayList(zigmod.Module)) !void {
+    var notdone = std.ArrayList(zigmod.Module).init(gpa);
+    defer notdone.deinit();
+    
+    var done = std.ArrayList(zigmod.Module).init(gpa);
+    defer done.deinit();
+    
+    var c_lib_modules = std.ArrayList(zigmod.Module).init(gpa);
+    defer c_lib_modules.deinit();
+    
+    var c_lib_count: usize = 0;
+    var link_lib_c_count: usize = 0;
+    var vcpkg_count: usize = 0;
+    for (list.items) |mod| {
+        c_lib_count += mod.c_libs.len;
+        link_lib_c_count += mod.c_include_dirs.len;
+        link_lib_c_count += mod.c_source_files.len;
+        if (mod.has_syslib_deps()) link_lib_c_count += 1;
+        if (mod.has_vcpkg_deps()) {
+            link_lib_c_count += 1;
+            vcpkg_count += 1;
+        }
+        if (!mod.is_sys_lib) try notdone.append(mod);
+    }
+    link_lib_c_count += c_lib_count;
+    
     const f = try dir.createFile("deps.zig", .{});
     defer f.close();
 
@@ -60,15 +85,20 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\    mode: std.builtin.Mode,
         \\) *std.build.LibExeObjStep {
         \\    @setEvalBranchQuota(1_000_000);
-        \\    var vcpkg = false;
-        \\    var llc = c_libs.len != 0;
+        \\
         \\    exe.setTarget(target);
         \\    exe.setBuildMode(mode);
-        \\    if (llc) {
-        \\         // lazy
-        \\         if (c_libs[0] == null) buildCLibs(b, target, mode);
-        \\         for (c_libs) |c_lib| exe.linkLibrary(c_lib.?);
-        \\    }
+    );
+    if (c_lib_count != 0) try w.writeAll(
+        \\
+        \\
+        \\    // lazy
+        \\    if (c_libs[0] == null) resolveCLibs(b, target, mode);
+        \\    for (c_libs) |c_lib| exe.linkLibrary(c_lib.?);
+    );
+    try w.writeAll(
+        \\
+        \\
         \\    for (packages) |pkg| {
         \\        exe.addPackage(pkg.pkg.?);
         \\    }
@@ -76,21 +106,30 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\        const pkg = @as(Package, @field(package_data, decl.name));
         \\        inline for (pkg.system_libs) |item| {
         \\            exe.linkSystemLibrary(item);
-        \\            llc = true;
         \\        }
         \\        inline for (pkg.c_include_dirs) |item| {
         \\            exe.addIncludeDir(@field(dirs, decl.name) ++ "/" ++ item);
-        \\            llc = true;
         \\        }
         \\        inline for (pkg.c_source_files) |item| {
         \\            exe.addCSourceFile(@field(dirs, decl.name) ++ "/" ++ item, pkg.c_source_flags);
-        \\            llc = true;
         \\        }
         \\    }
-        \\    if (llc) exe.linkLibC();
-        \\    if (vcpkg and builtin.os.tag == .windows and target.getOsTag() == .windows) {
+    );
+    if (link_lib_c_count != 0) try w.writeAll(
+        \\
+        \\
+        \\    exe.linkLibC();
+    );
+    if (vcpkg_count != 0) try w.writeAll(
+        \\
+        \\
+        \\    if (builtin.os.tag == .windows and target.getOsTag() == .windows) {
         \\        exe.addVcpkgPaths(.static) catch |err| @panic(@errorName(err));
         \\    }
+    );
+    try w.writeAll(
+        \\
+        \\
         \\    return exe;
         \\}
         \\
@@ -120,13 +159,7 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
     try w.writeAll("};\n\n");
 
     try w.writeAll("pub const package_data = struct {\n");
-    var duped = std.ArrayList(zigmod.Module).init(gpa);
-    for (list.items) |mod| {
-        if (!mod.is_sys_lib) try duped.append(mod);
-    }
-    var c_lib_modules = std.ArrayList(zigmod.Module).init(gpa);
-    defer c_lib_modules.deinit();
-    try print_pkg_data_to(w, &duped, &std.ArrayList(zigmod.Module).init(gpa), &c_lib_modules);
+    try print_pkg_data_to(w, &notdone, &done, &c_lib_modules);
     try w.writeAll("};\n\n");
 
     try w.writeAll("pub const packages = ");
@@ -140,6 +173,8 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
     try w.writeAll("pub const imports = struct {\n");
     try print_imports(w, top_module, cachepath);
     try w.writeAll("};\n");
+    
+    if (c_lib_count == 0) return;
 
     try w.writeAll(
         \\
@@ -150,12 +185,9 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         "var c_libs: [{}]?*std.build.LibExeObjStep = undefined;\n",
         .{ c_lib_modules.items.len },
     );
-
-    if (c_lib_modules.items.len == 0) return;
-    
     try w.writeAll(
         \\
-        \\fn buildCLibs(
+        \\fn resolveCLibs(
         \\    b: *std.build.Builder,
         \\    target: std.zig.CrossTarget,
         \\    mode: std.builtin.Mode,
