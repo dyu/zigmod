@@ -83,6 +83,7 @@ pub fn collect_deps(cachepath: string, mdir: std.fs.Dir, options: *CollectOption
         .name = m.name,
         .main = m.main,
         .c_include_dirs = m.c_include_dirs,
+        .c_libs = m.c_libs,
         .c_source_flags = m.c_source_flags,
         .c_source_files = m.c_source_files,
         .deps = moduledeps.toOwnedSlice(),
@@ -244,7 +245,7 @@ pub fn get_module_from_dep(d: *zigmod.Dep, cachepath: string, options: *CollectO
         else => {
             var dd = try collect_deps(cachepath, moddir, options) catch |e| switch (e) {
                 error.FileNotFound => {
-                    if (d.main.len > 0 or d.c_include_dirs.len > 0 or d.c_source_files.len > 0 or d.keep) {
+                    if (d.main.len > 0 or d.c_include_dirs.len > 0 or d.c_libs.len > 0 or d.c_source_files.len > 0 or d.keep) {
                         var mod_from = try zigmod.Module.from(options.alloc, d.*, modpath, options);
                         if (d.type != .local) mod_from.clean_path = u.trim_prefix(modpath, cachepath)[1..];
                         if (mod_from.is_for_this()) return mod_from;
@@ -276,6 +277,7 @@ pub fn get_module_from_dep(d: *zigmod.Dep, cachepath: string, options: *CollectO
             if (d.name.len > 0) dd.name = d.name;
             if (d.main.len > 0) dd.main = d.main;
             if (d.c_include_dirs.len > 0) dd.c_include_dirs = d.c_include_dirs;
+            if (d.c_libs.len > 0) dd.c_libs = d.c_libs;
             if (d.c_source_flags.len > 0) dd.c_source_flags = d.c_source_flags;
             if (d.c_source_files.len > 0) dd.c_source_files = d.c_source_files;
             if (d.only_os.len > 0) dd.only_os = d.only_os;

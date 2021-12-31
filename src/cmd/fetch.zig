@@ -45,21 +45,33 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
     defer f.close();
 
     const w = f.writer();
-    try w.writeAll("const std = @import(\"std\");\n");
-    try w.writeAll("const builtin = @import(\"builtin\");\n");
-    try w.writeAll("const Pkg = std.build.Pkg;\n");
-    try w.writeAll("const string = []const u8;\n");
-    try w.writeAll("\n");
-    try w.print("pub const cache = \"{}\";\n", .{std.zig.fmtEscapes(cachepath)});
-    try w.writeAll("\n");
     try w.writeAll(
-        \\pub fn addAllTo(exe: *std.build.LibExeObjStep) void {
+        \\const std = @import("std");
+        \\const builtin = @import("builtin");
+        \\const Pkg = std.build.Pkg;
+        \\const string = []const u8;
+        \\
+        \\pub const cache = ".zigmod/deps";
+        \\
+        \\pub fn addAllTo(
+        \\    exe: *std.build.LibExeObjStep,
+        \\    b: *std.build.Builder,
+        \\    target: std.zig.CrossTarget,
+        \\    mode: std.builtin.Mode,
+        \\) *std.build.LibExeObjStep {
         \\    @setEvalBranchQuota(1_000_000);
+        \\    var vcpkg = false;
+        \\    var llc = c_libs.len != 0;
+        \\    exe.setTarget(target);
+        \\    exe.setBuildMode(mode);
+        \\    if (llc) {
+        \\         // lazy
+        \\         if (c_libs[0] == null) buildCLibs(b, target, mode);
+        \\         for (c_libs) |c_lib| exe.linkLibrary(c_lib.?);
+        \\    }
         \\    for (packages) |pkg| {
         \\        exe.addPackage(pkg.pkg.?);
         \\    }
-        \\    var llc = false;
-        \\    var vcpkg = false;
         \\    inline for (std.meta.declarations(package_data)) |decl| {
         \\        const pkg = @as(Package, @field(package_data, decl.name));
         \\        inline for (pkg.system_libs) |item| {
@@ -76,13 +88,25 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\        }
         \\    }
         \\    if (llc) exe.linkLibC();
-        \\    if (builtin.os.tag == .windows and vcpkg) exe.addVcpkgPaths(.static) catch |err| @panic(@errorName(err));
+        \\    if (vcpkg and builtin.os.tag == .windows and target.getOsTag() == .windows) {
+        \\        exe.addVcpkgPaths(.static) catch |err| @panic(@errorName(err));
+        \\    }
+        \\    return exe;
         \\}
+        \\
+        \\pub const CLib = struct {
+        \\    name: string,
+        \\    idx: usize,
+        \\    pub fn getStep(self: *CLib) ?*std.build.LibExeObjStep {
+        \\        return c_libs[self.idx];
+        \\    }
+        \\};
         \\
         \\pub const Package = struct {
         \\    directory: string,
         \\    pkg: ?Pkg = null,
         \\    c_include_dirs: []const string = &.{},
+        \\    c_libs: []const CLib = &.{},
         \\    c_source_files: []const string = &.{},
         \\    c_source_flags: []const string = &.{},
         \\    system_libs: []const string = &.{},
@@ -91,7 +115,6 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\
         \\
     );
-
     try w.writeAll("const dirs = struct {\n");
     try print_dirs(w, list.items);
     try w.writeAll("};\n\n");
@@ -99,12 +122,11 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
     try w.writeAll("pub const package_data = struct {\n");
     var duped = std.ArrayList(zigmod.Module).init(gpa);
     for (list.items) |mod| {
-        if (mod.is_sys_lib) {
-            continue;
-        }
-        try duped.append(mod);
+        if (!mod.is_sys_lib) try duped.append(mod);
     }
-    try print_pkg_data_to(w, &duped, &std.ArrayList(zigmod.Module).init(gpa));
+    var c_lib_modules = std.ArrayList(zigmod.Module).init(gpa);
+    defer c_lib_modules.deinit();
+    try print_pkg_data_to(w, &duped, &std.ArrayList(zigmod.Module).init(gpa), &c_lib_modules);
     try w.writeAll("};\n\n");
 
     try w.writeAll("pub const packages = ");
@@ -118,6 +140,56 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
     try w.writeAll("pub const imports = struct {\n");
     try print_imports(w, top_module, cachepath);
     try w.writeAll("};\n");
+
+    try w.writeAll(
+        \\
+        \\// lazy
+        \\
+    );
+    try w.print(
+        "var c_libs: [{}]?*std.build.LibExeObjStep = undefined;\n",
+        .{ c_lib_modules.items.len },
+    );
+
+    if (c_lib_modules.items.len == 0) return;
+    
+    try w.writeAll(
+        \\
+        \\fn buildCLibs(
+        \\    b: *std.build.Builder,
+        \\    target: std.zig.CrossTarget,
+        \\    mode: std.builtin.Mode,
+        \\) void {
+        \\
+    );
+    
+    var offset: usize = 0;
+    for (c_lib_modules.items) |mod, j| {
+        try w.print(
+            "    c_libs[{}] = imports._{s}_leveldb_lib.configure(\n",
+            .{ j, mod.id[0..12] },
+        );
+        try w.print(
+            "        dirs._{s}, b.allocator,\n",
+            .{ mod.id[0..12] },
+        );
+        offset =
+            if (j == 0 or !std.mem.eql(u8, mod.id, c_lib_modules.items[j - 1].id))
+                0
+            else
+                offset + 1;
+        try w.print(
+            "        b.addStaticLibrary(\"{s}\", null),\n",
+            .{ mod.c_libs[offset] },
+        );
+        try w.writeAll(
+            \\        target, mode,
+            \\    );
+            \\
+        );
+    }
+    
+    try w.writeAll("}\n\n");
 }
 
 fn create_lockfile(list: *std.ArrayList(zigmod.Module), path: string, dir: std.fs.Dir) !void {
@@ -255,7 +327,12 @@ fn print_deps(w: std.fs.File.Writer, m: zigmod.Module) !void {
     try w.writeAll("}");
 }
 
-fn print_pkg_data_to(w: std.fs.File.Writer, notdone: *std.ArrayList(zigmod.Module), done: *std.ArrayList(zigmod.Module)) !void {
+fn print_pkg_data_to(
+    w: std.fs.File.Writer,
+    notdone: *std.ArrayList(zigmod.Module),
+    done: *std.ArrayList(zigmod.Module),
+    c_lib_modules: *std.ArrayList(zigmod.Module),
+) !void {
     var len: usize = notdone.items.len;
     while (notdone.items.len > 0) {
         for (notdone.items) |mod, i| {
@@ -295,6 +372,16 @@ fn print_pkg_data_to(w: std.fs.File.Writer, notdone: *std.ArrayList(zigmod.Modul
                         if (j != mod.c_include_dirs.len - 1) try w.writeAll(",");
                     }
                     try w.writeAll(" },\n");
+                }
+                if (mod.c_libs.len > 0) {
+                    try w.writeAll("        .c_libs = &.{\n");
+                    for (mod.c_libs) |item| {
+                        try w.writeAll("            .{ .name = ");
+                        try w.print("\"{}\", .idx = {}", .{ std.zig.fmtEscapes(item), c_lib_modules.items.len });
+                        try w.writeAll(" },\n");
+                        try c_lib_modules.append(mod);
+                    }
+                    try w.writeAll("        },\n");
                 }
                 if (mod.c_source_files.len > 0) {
                     try w.writeAll("        .c_source_files = &.{");
@@ -372,7 +459,16 @@ fn print_imports(w: std.fs.File.Writer, m: zigmod.Module, path: string) !void {
             continue;
         }
         const ident = try zig_name_from_pkg_name(d.name);
-        try w.print("    pub const {s} = @import(\"{}/{}/{s}\");\n", .{ ident, std.zig.fmtEscapes(path), std.zig.fmtEscapes(d.clean_path), d.main });
+        const path_escaped = std.zig.fmtEscapes(path);
+        const clean_path_escaped = std.zig.fmtEscapes(d.clean_path);
+        try w.print(
+            "    pub const {s} = @import(\"{}/{}/{s}\");\n",
+            .{ ident, path_escaped, clean_path_escaped, d.main }
+        );
+        for (d.c_libs) |c_lib| try w.print(
+            "    const _{s}_{s}_lib = @import(\"{}/{}/{s}_lib.zig\");\n",
+            .{ d.id[0..12], c_lib, path_escaped, clean_path_escaped, c_lib },
+        );
     }
 }
 

@@ -20,6 +20,7 @@ pub const Dep = struct {
     main: string,
     version: string,
     c_include_dirs: []const string = &.{},
+    c_libs: []const string = &.{},
     c_source_flags: []const string = &.{},
     c_source_files: []const string = &.{},
     only_os: []const string = &.{},
