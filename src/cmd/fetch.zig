@@ -89,7 +89,10 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\    exe.setTarget(target);
         \\    exe.setBuildMode(mode);
     );
-    if (c_lib_count != 0) try w.writeAll(
+    if (c_lib_count == 0) try w.writeAll(
+        \\
+        \\    _ = b;
+    ) else try w.writeAll(
         \\
         \\
         \\    // lazy
@@ -155,9 +158,11 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\
     );
     try w.writeAll("const dirs = struct {\n");
-    try print_dirs(w, list.items);
+    const no_deps_count = try print_dirs(w, list.items);
     try w.writeAll("};\n\n");
-
+    
+    if (c_lib_count != 0) try print_dep_dirs(w, list.items, no_deps_count);
+    
     try w.writeAll("pub const package_data = struct {\n");
     try print_pkg_data_to(w, &notdone, &done, &c_lib_modules);
     try w.writeAll("};\n\n");
@@ -207,8 +212,15 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
             .{ j, mod.id[0..12], offset },
         );
         try w.print(
-            "        dirs._{s}, b.allocator,\n",
+            "        dirs._{s},\n",
             .{ mod.id[0..12] },
+        );
+        try w.print(
+            "        dep_dirs._{s},\n",
+            .{ mod.id[0..12] },
+        );
+        try w.writeAll(
+            "        b.allocator,\n"
         );
         try w.print(
             "        b.addStaticLibrary(\"{s}\", null),\n",
@@ -334,7 +346,8 @@ fn diff_printchange(comptime testt: string, comptime replacement: string, item: 
     return false;
 }
 
-fn print_dirs(w: std.fs.File.Writer, list: []const zigmod.Module) !void {
+fn print_dirs(w: std.fs.File.Writer, list: []const zigmod.Module) !usize {
+    var no_deps_count: usize = 0;
     for (list) |mod| {
         if (mod.is_sys_lib) continue;
         if (std.mem.eql(u8, mod.id, "root")) {
@@ -342,7 +355,42 @@ fn print_dirs(w: std.fs.File.Writer, list: []const zigmod.Module) !void {
             continue;
         }
         try w.print("    pub const _{s} = cache ++ \"/{}\";\n", .{ mod.short_id(), std.zig.fmtEscapes(mod.clean_path) });
+        if (mod.deps.len == 0) no_deps_count += 1;
     }
+    return no_deps_count;
+}
+
+fn print_dep_dirs(
+    w: std.fs.File.Writer,
+    list: []const zigmod.Module,
+    no_deps_count: usize,
+) !void {
+    if (no_deps_count != 0) try w.writeAll(
+        "const zero_deps_map = std.ComptimeStringMap(string, .{ .{ \"\", \"\" } });\n\n",
+    );
+    try w.writeAll("pub const dep_dirs = struct {\n");
+    for (list) |mod| {
+        if (mod.is_sys_lib or std.mem.eql(u8, mod.id, "root")) continue;
+        if (mod.deps.len == 0) {
+            try w.print(
+                "    pub const _{s} = zero_deps_map;\n",
+                .{ mod.id[0..12] },
+            );
+            continue;
+        }
+        try w.print(
+            "    pub const _{s} = std.ComptimeStringMap(string, .{{",
+            .{ mod.id[0..12] },
+        );
+        for (mod.deps) |dep| {
+            try w.print(
+                "        .{{ \"{s}\", dirs._{s} }}\n",
+                .{ dep.name, dep.id[0..12] },
+            );
+        }
+        try w.writeAll("});\n");
+    }
+    try w.writeAll("};\n\n");
 }
 
 fn print_deps(w: std.fs.File.Writer, m: zigmod.Module) !void {
@@ -484,18 +532,14 @@ fn print_pkgs(w: std.fs.File.Writer, m: zigmod.Module) !void {
 
 fn print_imports(w: std.fs.File.Writer, m: zigmod.Module, path: string) !void {
     for (m.deps) |d| {
-        if (d.main.len == 0) {
+        if (d.main.len == 0 or (!d.for_build and 0 == d.c_libs.len)) {
             continue;
         }
-        if (!d.for_build) {
-            continue;
-        }
-        const ident = try zig_name_from_pkg_name(d.name);
         const path_escaped = std.zig.fmtEscapes(path);
         const clean_path_escaped = std.zig.fmtEscapes(d.clean_path);
-        try w.print(
+        if (d.for_build) try w.print(
             "    pub const {s} = @import(\"{}/{}/{s}\");\n",
-            .{ ident, path_escaped, clean_path_escaped, d.main }
+            .{ try zig_name_from_pkg_name(d.name), path_escaped, clean_path_escaped, d.main }
         );
         for (d.c_libs) |c_lib, j| try w.print(
             "    const _{s}_{}_lib = @import(\"{}/{}/{s}_lib.zig\");\n",
