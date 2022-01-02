@@ -371,17 +371,18 @@ fn print_dep_dirs(
     );
     try w.writeAll("pub const dep_dirs = struct {\n");
     for (list) |mod| {
-        if (mod.is_sys_lib or std.mem.eql(u8, mod.id, "root")) continue;
+        if (mod.is_sys_lib) continue;
+        const short_id: string = if (std.mem.eql(u8, mod.id, "root")) "root" else mod.id[0..12];
         if (mod.deps.len == 0) {
             try w.print(
                 "    pub const _{s} = zero_deps_map;\n",
-                .{ mod.id[0..12] },
+                .{ short_id },
             );
             continue;
         }
         try w.print(
             "    pub const _{s} = std.ComptimeStringMap(string, .{{\n",
-            .{ mod.id[0..12] },
+            .{ short_id },
         );
         for (mod.deps) |dep| {
             try w.print(
