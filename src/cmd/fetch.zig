@@ -380,16 +380,16 @@ fn print_dep_dirs(
             continue;
         }
         try w.print(
-            "    pub const _{s} = std.ComptimeStringMap(string, .{{",
+            "    pub const _{s} = std.ComptimeStringMap(string, .{{\n",
             .{ mod.id[0..12] },
         );
         for (mod.deps) |dep| {
             try w.print(
-                "        .{{ \"{s}\", dirs._{s} }}\n",
+                "        .{{ \"{s}\", dirs._{s} }},\n",
                 .{ dep.name, dep.id[0..12] },
             );
         }
-        try w.writeAll("});\n");
+        try w.writeAll("    });\n");
     }
     try w.writeAll("};\n\n");
 }
