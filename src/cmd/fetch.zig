@@ -385,7 +385,7 @@ fn print_dep_dirs(
             .{ short_id },
         );
         for (mod.deps) |dep| {
-            try w.print(
+            if (!dep.for_build) try w.print(
                 "        .{{ \"{s}\", dirs._{s} }},\n",
                 .{ dep.name, dep.id[0..12] },
             );
