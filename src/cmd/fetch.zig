@@ -157,7 +157,7 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\
         \\
     );
-    try w.writeAll("const dirs = struct {\n");
+    try w.writeAll("pub const dirs = struct {\n");
     const no_deps_count = try print_dirs(w, list.items);
     try w.writeAll("};\n\n");
     
