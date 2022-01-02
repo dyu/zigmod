@@ -168,19 +168,17 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
     try w.writeAll("};\n\n");
 
     try w.writeAll("pub const packages = ");
-    try print_deps(w, top_module);
+    const import_count = try print_deps(w, top_module);
     try w.writeAll(";\n\n");
+
+    if (import_count != 0) try print_imports(w, top_module, cachepath);
 
     try w.writeAll("pub const pkgs = ");
     try print_pkgs(w, top_module);
     try w.writeAll(";\n\n");
 
-    try w.writeAll("pub const imports = struct {\n");
-    try print_imports(w, top_module, cachepath);
-    try w.writeAll("};\n");
-    
     if (c_lib_count == 0) return;
-
+    
     try w.writeAll(
         \\
         \\// lazy
@@ -200,6 +198,7 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\
     );
     
+    const path_escaped = std.zig.fmtEscapes(cachepath);
     var offset: usize = undefined;
     for (c_lib_modules.items) |mod, j| {
         offset =
@@ -207,9 +206,11 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
                 0
             else
                 offset + 1;
+        const c_lib = mod.c_libs[offset];
+        const clean_path_escaped = std.zig.fmtEscapes(mod.clean_path);
         try w.print(
-            "    c_libs[{}] = imports._{s}_{}_lib.configure(\n",
-            .{ j, mod.id[0..12], offset },
+            "    c_libs[{}] = @import(\"{}/{}/{s}_lib.zig\").configure(\n",
+            .{ j, path_escaped, clean_path_escaped, c_lib },
         );
         try w.print(
             "        dirs._{s},\n",
@@ -224,7 +225,7 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         );
         try w.print(
             "        b.addStaticLibrary(\"{s}\", null),\n",
-            .{ mod.c_libs[offset] },
+            .{ c_lib },
         );
         try w.writeAll(
             \\        target, mode,
@@ -393,18 +394,21 @@ fn print_dep_dirs(
     try w.writeAll("};\n\n");
 }
 
-fn print_deps(w: std.fs.File.Writer, m: zigmod.Module) !void {
+fn print_deps(w: std.fs.File.Writer, m: zigmod.Module) !usize {
+    var import_count: usize = 0;
     try w.writeAll("&[_]Package{\n");
     for (m.deps) |d| {
         if (d.main.len == 0) {
             continue;
         }
         if (d.for_build) {
+            import_count += 1;
             continue;
         }
         try w.print("    package_data._{s},\n", .{d.id[0..12]});
     }
     try w.writeAll("}");
+    return import_count;
 }
 
 fn print_pkg_data_to(
@@ -531,21 +535,19 @@ fn print_pkgs(w: std.fs.File.Writer, m: zigmod.Module) !void {
 }
 
 fn print_imports(w: std.fs.File.Writer, m: zigmod.Module, path: string) !void {
+    const path_escaped = std.zig.fmtEscapes(path);
+    try w.writeAll("pub const imports = struct {\n");
     for (m.deps) |d| {
-        if (d.main.len == 0 or (!d.for_build and 0 == d.c_libs.len)) {
-            continue;
-        }
-        const path_escaped = std.zig.fmtEscapes(path);
+        if (d.main.len == 0 or !d.for_build) continue;
+        
+        const ident = try zig_name_from_pkg_name(d.name); 
         const clean_path_escaped = std.zig.fmtEscapes(d.clean_path);
-        if (d.for_build) try w.print(
+        try w.print(
             "    pub const {s} = @import(\"{}/{}/{s}\");\n",
-            .{ try zig_name_from_pkg_name(d.name), path_escaped, clean_path_escaped, d.main }
-        );
-        for (d.c_libs) |c_lib, j| try w.print(
-            "    const _{s}_{}_lib = @import(\"{}/{}/{s}_lib.zig\");\n",
-            .{ d.id[0..12], j, path_escaped, clean_path_escaped, c_lib },
+            .{ ident, path_escaped, clean_path_escaped, d.main }
         );
     }
+    try w.writeAll("};\n\n");
 }
 
 fn zig_name_from_pkg_name(name: string) !string {
