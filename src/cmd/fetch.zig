@@ -351,12 +351,17 @@ fn print_dirs(w: std.fs.File.Writer, list: []const zigmod.Module) !usize {
     var no_deps_count: usize = 0;
     for (list) |mod| {
         if (mod.is_sys_lib) continue;
+        if (mod.deps.len == 0) no_deps_count += 1;
         if (std.mem.eql(u8, mod.id, "root")) {
             try w.print("    pub const _root = \"\";\n", .{});
-            continue;
+        } else if (std.mem.eql(u8, mod.clean_path, "../..")) {
+            try w.print("    pub const _{s} = \".\";\n", .{ mod.short_id() });    
+        } else {
+            try w.print(
+                "    pub const _{s} = cache ++ \"/{}\";\n",
+                .{ mod.short_id(), std.zig.fmtEscapes(mod.clean_path) },
+            );
         }
-        try w.print("    pub const _{s} = cache ++ \"/{}\";\n", .{ mod.short_id(), std.zig.fmtEscapes(mod.clean_path) });
-        if (mod.deps.len == 0) no_deps_count += 1;
     }
     return no_deps_count;
 }
