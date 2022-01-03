@@ -221,7 +221,9 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
             .{ mod.id[0..12] },
         );
         try w.writeAll(
-            "        b.allocator,\n"
+            \\        dep_dirs._root,
+            \\        b.allocator,
+            \\
         );
         try w.print(
             "        b.addStaticLibrary(\"{s}\", null),\n",
