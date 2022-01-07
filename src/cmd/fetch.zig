@@ -138,10 +138,16 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\
         \\pub const CLib = struct {
         \\    name: string,
+    );
+    if (c_lib_count != 0) try w.writeAll(
+        \\
         \\    idx: usize,
         \\    pub fn getStep(self: *CLib) ?*std.build.LibExeObjStep {
         \\        return c_libs[self.idx];
         \\    }
+    );
+    try w.writeAll(
+        \\
         \\};
         \\
         \\pub const Package = struct {
@@ -157,6 +163,7 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\
         \\
     );
+    
     try w.writeAll("pub const dirs = struct {\n");
     const no_deps_count = try print_dirs(w, list.items);
     try w.writeAll("};\n\n");
