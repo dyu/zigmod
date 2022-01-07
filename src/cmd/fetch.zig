@@ -185,7 +185,7 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
         \\
     );
     try w.print(
-        "var c_libs: [{}]?*std.build.LibExeObjStep = undefined;\n",
+        "var c_libs = std.mem.zeroes([{}]?*std.build.LibExeObjStep);\n",
         .{ c_lib_modules.items.len },
     );
     try w.writeAll(
@@ -207,10 +207,12 @@ pub fn create_depszig(cachepath: string, dir: std.fs.Dir, top_module: zigmod.Mod
             else
                 offset + 1;
         const c_lib = mod.c_libs[offset];
-        const clean_path_escaped = std.zig.fmtEscapes(mod.clean_path);
-        try w.print(
+        if (std.mem.eql(u8, mod.clean_path, "../..")) try w.print(
+            "    c_libs[{}] = @import(\"{s}_lib.zig\").configure(\n",
+            .{ j, c_lib },
+        ) else try w.print(
             "    c_libs[{}] = @import(\"{}/{}/{s}_lib.zig\").configure(\n",
-            .{ j, path_escaped, clean_path_escaped, c_lib },
+            .{ j, path_escaped, std.zig.fmtEscapes(mod.clean_path), c_lib },
         );
         try w.print(
             "        dirs._{s},\n",
