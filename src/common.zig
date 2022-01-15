@@ -141,15 +141,14 @@ pub fn get_modpath(cachepath: string, d: zigmod.Dep, options: *CollectOptions) !
                     },
                 };
                 if (try u.does_folder_exist(pv)) {
-                    if (vers.id == .branch) {
-                        if (options.update) {
-                            try d.type.update(options.alloc, pv, d.path);
-                        }
+                    if (vers.id == .branch and options.update) {
+                        try d.type.update(options.alloc, pv, d.path);
                     }
                     return pv;
                 }
-                try d.type.pull(options.alloc, d.path, pv);
-                if ((try u.run_cmd(options.alloc, pv, &.{ "git", "checkout", vers.string })) > 0) {
+                const is_commit = vers.id == .commit;
+                try d.type.pull(options.alloc, d.path, pv, if (is_commit) null else vers.string);
+                if (is_commit and 0 != (try u.run_cmd(options.alloc, pv, &.{ "git", "checkout", vers.string }))) {
                     u.fail("fetch: git: {s}: {s} {s} does not exist", .{ d.path, @tagName(vers.id), vers.string });
                 }
                 if (builtin.os.tag != .windows and vers.id != .branch) {
@@ -159,17 +158,15 @@ pub fn get_modpath(cachepath: string, d: zigmod.Dep, options: *CollectOptions) !
                 return pv;
             }
             if (!try u.does_folder_exist(p)) {
-                try d.type.pull(options.alloc, d.path, p);
-            } else {
-                if (options.update) {
-                    try d.type.update(options.alloc, p, d.path);
-                }
+                try d.type.pull(options.alloc, d.path, p, null);
+            } else if (options.update) {
+                try d.type.update(options.alloc, p, d.path);
             }
             return p;
         },
         .hg => {
             if (!try u.does_folder_exist(p)) {
-                try d.type.pull(options.alloc, d.path, p);
+                try d.type.pull(options.alloc, d.path, p, null);
             } else {
                 if (options.update) {
                     try d.type.update(options.alloc, p, d.path);
@@ -187,7 +184,7 @@ pub fn get_modpath(cachepath: string, d: zigmod.Dep, options: *CollectOptions) !
                     return pv;
                 }
                 const file_path = try std.fs.path.join(options.alloc, &.{ pv, file_name });
-                try d.type.pull(options.alloc, d.path, pv);
+                try d.type.pull(options.alloc, d.path, pv, null);
                 if (try u.validate_hash(options.alloc, d.version, file_path)) {
                     try std.fs.cwd().deleteFile(file_path);
                     return pv;
@@ -200,7 +197,7 @@ pub fn get_modpath(cachepath: string, d: zigmod.Dep, options: *CollectOptions) !
                 try std.fs.cwd().deleteTree(p);
             }
             const file_path = try std.fs.path.join(options.alloc, &.{ p, file_name });
-            try d.type.pull(options.alloc, d.path, p);
+            try d.type.pull(options.alloc, d.path, p, null);
             try std.fs.deleteFileAbsolute(file_path);
             return p;
         },

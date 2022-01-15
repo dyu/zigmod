@@ -32,12 +32,20 @@ pub const DepType = enum {
     // hypercore,  // https://hypercore-protocol.org/
 
     // zig fmt: on
-    pub fn pull(self: DepType, alloc: std.mem.Allocator, rpath: string, dpath: string) !void {
+    pub fn pull(self: DepType, alloc: std.mem.Allocator, rpath: string, dpath: string, version: ?string) !void {
         switch (self) {
             .local => {},
             .system_lib => {},
             .git => {
-                u.assert((try u.run_cmd(alloc, null, &.{ "git", "clone", "--recurse-submodules", rpath, dpath })) == 0, "git clone {s} failed", .{rpath});
+                if (version) |ver| {
+                    u.assert(0 == (try u.run_cmd(alloc, null, 
+                        &.{ "git", "clone", "--recurse-submodules", "--shallow-submodules", "--depth=1", "--single-branch", "--branch", ver, rpath, dpath }
+                    )), "git clone --branch {s} {s} failed", .{ver, rpath});    
+                } else {
+                    u.assert(0 == (try u.run_cmd(alloc, null, 
+                        &.{ "git", "clone", "--recurse-submodules", rpath, dpath }
+                    )), "git clone {s} failed", .{rpath});   
+                }
             },
             .hg => {
                 u.assert((try u.run_cmd(alloc, null, &.{ "hg", "clone", rpath, dpath })) == 0, "hg clone {s} failed", .{rpath});
