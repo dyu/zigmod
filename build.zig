@@ -51,7 +51,7 @@ pub fn build(b: *std.build.Builder) void {
             },
         });
     } else {
-        deps.addAllTo(exe);
+        _ = deps.addAllTo(exe, b, target, mode);
     }
 
     exe.install();

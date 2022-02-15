@@ -34,7 +34,7 @@ dependencies:
   - src: git https://github.com/nektro/zig-ansi
   - src: git https://github.com/ziglibs/known-folders
   - src: git https://github.com/nektro/zig-licenses
-  - src: git https://github.com/truemedian/zfetch
+  - src: git https://github.com/dyu/zfetch branch-zig-0.9.1
   - src: git https://github.com/nektro/zig-json
   - src: git https://github.com/nektro/zig-range
   - src: git https://github.com/nektro/zig-detect-license

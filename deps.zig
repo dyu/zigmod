@@ -5,51 +5,63 @@ const string = []const u8;
 
 pub const cache = ".zigmod/deps";
 
-pub fn addAllTo(exe: *std.build.LibExeObjStep) void {
+pub fn addAllTo(
+    exe: *std.build.LibExeObjStep,
+    b: *std.build.Builder,
+    target: std.zig.CrossTarget,
+    mode: std.builtin.Mode,
+) *std.build.LibExeObjStep {
     @setEvalBranchQuota(1_000_000);
+
+    exe.setTarget(target);
+    exe.setBuildMode(mode);
+    _ = b;
+
     for (packages) |pkg| {
         exe.addPackage(pkg.pkg.?);
     }
-    var llc = false;
-    var vcpkg = false;
     inline for (std.meta.declarations(package_data)) |decl| {
         const pkg = @as(Package, @field(package_data, decl.name));
         inline for (pkg.system_libs) |item| {
             exe.linkSystemLibrary(item);
-            llc = true;
         }
         inline for (pkg.c_include_dirs) |item| {
             exe.addIncludeDir(@field(dirs, decl.name) ++ "/" ++ item);
-            llc = true;
         }
         inline for (pkg.c_source_files) |item| {
             exe.addCSourceFile(@field(dirs, decl.name) ++ "/" ++ item, pkg.c_source_flags);
-            llc = true;
         }
     }
-    if (llc) exe.linkLibC();
-    if (builtin.os.tag == .windows and vcpkg) exe.addVcpkgPaths(.static) catch |err| @panic(@errorName(err));
+
+    exe.linkLibC();
+
+    return exe;
 }
+
+pub const CLib = struct {
+    name: string,
+};
 
 pub const Package = struct {
     directory: string,
     pkg: ?Pkg = null,
     c_include_dirs: []const string = &.{},
+    c_libs: []const CLib = &.{},
     c_source_files: []const string = &.{},
     c_source_flags: []const string = &.{},
     system_libs: []const string = &.{},
     vcpkg: bool = false,
 };
 
-const dirs = struct {
+pub const dirs = struct {
     pub const _root = "";
-    pub const _89ujp8gq842x = cache ++ "/../..";
+    pub const _89ujp8gq842x = ".";
     pub const _8mdbh0zuneb0 = cache ++ "/v/git/github.com/yaml/libyaml/tag-0.2.5";
     pub const _csbnipaad8n7 = cache ++ "/git/github.com/nektro/iguanaTLS";
     pub const _s84v9o48ucb0 = cache ++ "/git/github.com/nektro/zig-ansi";
     pub const _2ta738wrqbaq = cache ++ "/git/github.com/ziglibs/known-folders";
     pub const _0npcrzfdlrvk = cache ++ "/git/github.com/nektro/zig-licenses";
-    pub const _ejw82j2ipa0e = cache ++ "/git/github.com/truemedian/zfetch";
+    pub const _ejw82j2ipa0e = cache ++ "/v/git/github.com/dyu/zfetch/branch-zig-0.9.1";
     pub const _9k24gimke1an = cache ++ "/git/github.com/truemedian/hzzp";
     pub const _yyhw90zkzgmu = cache ++ "/git/github.com/MasterQ32/zig-network";
     pub const _u9w9dpp6p804 = cache ++ "/git/github.com/MasterQ32/zig-uri";
@@ -59,7 +71,6 @@ const dirs = struct {
     pub const _2ovav391ivak = cache ++ "/git/github.com/nektro/zig-detect-license";
     pub const _pt88y5d80m25 = cache ++ "/git/github.com/nektro/zig-licenses-text";
     pub const _96h80ezrvj7i = cache ++ "/git/github.com/nektro/zig-leven";
-    pub const _qyrnfg0iwpzl = cache ++ "/git/github.com/nektro/zig-fs-check";
     pub const _c1xirp1ota5p = cache ++ "/git/github.com/nektro/zig-inquirer";
     pub const _u7sysdckdymi = cache ++ "/git/github.com/arqv/ini";
     pub const _o6ogpor87xc2 = cache ++ "/git/github.com/marlersoft/zigwin32";
@@ -124,13 +135,9 @@ pub const package_data = struct {
         .directory = dirs._96h80ezrvj7i,
         .pkg = Pkg{ .name = "leven", .path = .{ .path = dirs._96h80ezrvj7i ++ "/src/lib.zig" }, .dependencies = &.{ _tnj3qf44tpeq.pkg.? } },
     };
-    pub const _qyrnfg0iwpzl = Package{
-        .directory = dirs._qyrnfg0iwpzl,
-        .pkg = Pkg{ .name = "fs-check", .path = .{ .path = dirs._qyrnfg0iwpzl ++ "/src/lib.zig" }, .dependencies = null },
-    };
     pub const _2ovav391ivak = Package{
         .directory = dirs._2ovav391ivak,
-        .pkg = Pkg{ .name = "detect-license", .path = .{ .path = dirs._2ovav391ivak ++ "/src/lib.zig" }, .dependencies = &.{ _pt88y5d80m25.pkg.?, _96h80ezrvj7i.pkg.?, _qyrnfg0iwpzl.pkg.? } },
+        .pkg = Pkg{ .name = "detect-license", .path = .{ .path = dirs._2ovav391ivak ++ "/src/lib.zig" }, .dependencies = &.{ _pt88y5d80m25.pkg.?, _96h80ezrvj7i.pkg.? } },
     };
     pub const _c1xirp1ota5p = Package{
         .directory = dirs._c1xirp1ota5p,
@@ -163,5 +170,3 @@ pub const pkgs = struct {
     pub const win32 = package_data._o6ogpor87xc2;
 };
 
-pub const imports = struct {
-};
