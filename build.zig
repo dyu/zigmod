@@ -5,8 +5,6 @@ const deps = @import("./deps.zig");
 
 pub fn build(b: *std.build.Builder) void {
     const target = b.standardTargetOptions(.{});
-
-    b.setPreferredReleaseMode(.ReleaseSafe);
     const mode = b.standardReleaseOptions();
 
     const use_full_name = b.option(bool, "use-full-name", "") orelse false;
