@@ -27,3 +27,7 @@ pub const DepType = @import("./util/dep_type.zig").DepType;
 pub const Dep = @import("./util/dep.zig").Dep;
 pub const ModFile = @import("./util/modfile.zig").ModFile;
 pub const Module = @import("./util/module.zig").Module;
+
+// util exports
+pub const util = @import("./util/index.zig");
+pub const common = @import("./common.zig");

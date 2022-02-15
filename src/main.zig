@@ -6,8 +6,8 @@ pub const build_options = @import("build_options");
 const zigmod = @import("zigmod");
 const win32 = @import("win32");
 
-pub const u = @import("./util/index.zig");
-pub const common = @import("./common.zig");
+pub const u = zigmod.util;
+pub const common = zigmod.common;
 
 //
 //
