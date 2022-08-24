@@ -7,6 +7,7 @@ const detectlicense = @import("detect-license");
 const knownfolders = @import("known-folders");
 const ini = @import("ini");
 const u = @import("./../util/index.zig");
+const modfile = @import("./../util/modfile.zig");
 
 //
 //
@@ -15,6 +16,15 @@ const s_in_y = std.time.s_per_week * 52;
 
 pub fn execute(args: [][]u8) !void {
     _ = args;
+
+    var mod_file_suffix = false;
+    if (modfile.openRawFile(std.fs.cwd(), &mod_file_suffix)) |_| {
+        if (mod_file_suffix) u.fail("zig.mod already exists.\n", .{})
+        else u.fail("zigmod.yml already exists.\n", .{});
+    } else |err| switch (err) {
+        error.FileNotFound => {}, // noop
+        else => return err,
+    }
 
     std.debug.print("This utility will walk you through creating a zig.mod file.\n", .{});
     std.debug.print("That will give a good launching off point to get your next project started.\n", .{});

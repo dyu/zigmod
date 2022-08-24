@@ -12,6 +12,14 @@ const b = 1;
 const kb = b * 1024;
 const mb = kb * 1024;
 
+pub fn openRawFile(dir: std.fs.Dir, mod_file_suffix: *bool) !std.fs.File {
+    return dir.openFile("zig.mod", .{}) catch |err| {
+        if (err != error.FileNotFound) return err;
+        mod_file_suffix.* = false;
+        return try dir.openFile("zigmod.yml", .{});
+    };
+}
+
 pub const ModFile = struct {
     const Self = @This();
 
@@ -28,24 +36,22 @@ pub const ModFile = struct {
     files: []const string,
     rootdeps: []zigmod.Dep,
     builddeps: []zigmod.Dep,
+    mod_file_suffix: bool,
 
-    pub fn init(alloc: std.mem.Allocator, mpath: string) !Self {
-        const file = try std.fs.cwd().openFile(mpath, .{});
-        defer file.close();
-        const input = try file.reader().readAllAlloc(alloc, mb);
-        const doc = try yaml.parse(alloc, input);
-        return from_mapping(alloc, doc.mapping);
-    }
+    // pub fn init(alloc: std.mem.Allocator) !Self {
+    //     return try from_dir(alloc, std.fs.cwd());
+    // }
 
     pub fn from_dir(alloc: std.mem.Allocator, dir: std.fs.Dir) !Self {
-        const file = try dir.openFile("zig.mod", .{});
+        var mod_file_suffix = true;
+        const file = try openRawFile(dir, &mod_file_suffix);
         defer file.close();
         const input = try file.reader().readAllAlloc(alloc, mb);
         const doc = try yaml.parse(alloc, input);
-        return from_mapping(alloc, doc.mapping);
+        return from_mapping(alloc, doc.mapping, mod_file_suffix);
     }
 
-    pub fn from_mapping(alloc: std.mem.Allocator, mapping: yaml.Mapping) !Self {
+    fn from_mapping(alloc: std.mem.Allocator, mapping: yaml.Mapping, mod_file_suffix: bool) !Self {
         const id = mapping.get_string("id");
         const name = mapping.get("name").?.string;
         const main = mapping.get_string("main");
@@ -68,6 +74,7 @@ pub const ModFile = struct {
             .files = try mapping.get_string_array(alloc, "files"),
             .rootdeps = try dep_list_by_name(alloc, mapping, &.{ "dev_dependencies", "root_dependencies" }, false),
             .builddeps = try dep_list_by_name(alloc, mapping, &.{ "dev_dependencies", "build_dependencies" }, true),
+            .mod_file_suffix = mod_file_suffix,
         };
     }
 
